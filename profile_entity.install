@@ -1,0 +1,92 @@
+<?php
+/**
+* Implementation of hook_enable().
+*/
+function profile_entity_enable() {
+  $result = db_query("select * from {profile_field}");
+  foreach ($result as $record) {
+    // Check if our field is not already created.
+    $name = 'field_'. $record->name;
+    $type = 'text';
+    $widget = 'textfield';
+    $label = $record->title;
+    $required = $record->required ? TRUE : FALSE;
+    $register_form = $record->register;
+    $cardinality = 1;
+    $granularity = drupal_map_assoc(array('year', 'month', 'day'));
+    $allowed_values = array();
+    switch ($record->type) {
+      case 'textfield':
+         $type = 'text';
+         $widget = 'textfield';
+         break;
+      case 'selection':
+         $type = 'list_text';
+         if ($record->visibility == 1) {
+	       $widget = 'options_buttons';
+         }
+         elseif ($record->visibility == 2) {
+	       $widget = 'options_buttons';
+	       $cardinality = -1;
+	     }
+	     else {
+		    $widget = 'options_select';
+	     }
+	     $data_values = explode("\r\n", $record->options);
+	     if (!empty($data_values)) {
+	       foreach ($data_values as $key => $value) {
+		     $val = str_replace("\r\n", "", $value);
+		     $allowed_values[$val] = $val;
+	       }
+	     }
+         break;
+      case 'date':
+         $type = 'date';
+         $widget = 'date';
+         break;
+      case 'textarea':
+         $type = 'text_long';
+         $widget = 'textarea';
+         break;
+      default:
+         $type = 'text';
+         $type = 'textfield';
+         break;
+     }
+    if (!field_info_field($name)) {
+      $field = array(
+        'field_name' => $name,
+        'type' => $type,
+        'cardinality' => $cardinality,
+        'settings' => array('allowed_values' => $allowed_values),
+      );
+      if ($type == 'date') {
+	    $field['settings']['granularity'] = $granularity;
+      }
+      field_create_field($field);
+
+      // Create the instance on the bundle.
+      $instance = array(
+        'field_name' => $name,
+        'entity_type' => 'user',
+        'label' => $label,
+        'bundle' => 'user',
+        // If you don't set the "required" property then the field wont be required by default.
+        'required' => $required,
+        'settings' => array(
+           // Here you inform either or not you want this field showing up on the registration form.
+            'user_register_form' => $register_form,
+             
+        ),
+        'widget' => array(
+            'type' => $widget,
+        ),
+      );
+      if ($type == 'date') {
+	    $instance['widget']['settings']['year_range'] = '-100:+0';
+	  }
+      field_create_instance($instance);
+    }
+  }
+
+}

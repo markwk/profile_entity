@@ -1,0 +1,130 @@
+<?php
+/**
+ * Module to convert core profile to user entity fields
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function profile_entity_menu() {
+  $item['admin/config/people/profile-migration'] = array(
+    'title' => 'Migrate Core Profile to User Entity',
+    'description' => 'Migrate core profile to user entities with fields',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('profile_entity_export'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  return $item;
+}
+/**
+ * Export start form
+ * @form 
+ *   form elements array.
+ */
+function profile_entity_export($form) {	
+  $form['start'] = array(
+  	'#type' => 'submit',
+    '#title' => 'Start',
+    '#value' => 'Start'
+  );
+  return $form;
+}
+/**
+ * Export Start Form Submit
+ * @form
+ *  form elements array
+ * @form_state
+ *  form submitted values
+ */
+function profile_entity_export_submit($form, &$form_state) {
+	$batch = array(
+	  'title' => t('Exporting'),
+	  'operations' => array(
+	    array('profile_entity_quick_migrate', array()),
+	  ),
+	  'finished' => 'profile_entity_batch_finished',
+	  'file' => 'profile_entity.module',
+	);
+	batch_set($batch);
+}
+/**
+ * Exporting Data in batch process
+ * @context
+ *  context array with batch operation values
+ */
+function profile_entity_quick_migrate(&$context) {
+  $result = db_query("select * from {profile_field}");
+  $lists = array();
+  foreach ($result as $record) {
+    $lists[$record->fid]['value'] = 'field_'.$record->name;
+    $lists[$record->fid]['type'] = $record->type;
+  }
+  if (empty($context['sandbox'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['current_node'] = 0;
+    $context['sandbox']['max'] = db_query("SELECT COUNT(DISTINCT uid) FROM {users}")->fetchField();
+  }
+  $limit = 5;
+  $result = db_select('users')
+    ->fields('users', array('uid'))
+    ->condition('uid', $context['sandbox']['current_node'], '>')
+    ->orderBy('uid')
+    ->range(0, $limit)
+    ->execute();
+  foreach ($result as $record) {
+    $user = user_load($record->uid);
+    $edit = array();
+    $profile = db_query("select * from {profile_value} where uid = :uid", array(":uid" => $user->uid));
+    foreach ($profile as $profile_values) {
+	  if ($lists[$profile_values->fid]['type'] == 'selection') {
+		$select_arr = unserialize($profile_values->value);
+		if (count($select_arr) > 1) {
+		  $i = 0;
+	      foreach ($select_arr as $key => $value) {
+		    $edit[$lists[$profile_values->fid]['value']]['und'][$i] = array('value' => $value);
+		    $i++;
+	      }			
+		}
+		elseif (is_array($select_arr)) {
+		  $edit[$lists[$profile_values->fid]['value']]['und'][0]['value'] = $select_arr[0];		
+		}
+		else {
+		  $edit[$lists[$profile_values->fid]['value']]['und'][0]['value'] = $profile_values->value;	
+		}	
+	  }
+	  else if ($lists[$profile_values->fid]['type'] == 'date') {
+		$date_arr = unserialize($profile_values->value);
+	    $edit[$lists[$profile_values->fid]['value']]['und'][0]['value'] = $date_arr['year'] .'-'. $date_arr['month'] .'-'. $date_arr['day'];		
+	  }
+	  else {
+		$edit[$lists[$profile_values->fid]['value']]['und'][0]['value'] = $profile_values->value;		
+	  }
+    }
+    $user = user_save($user, $edit);
+    $context['results'][] = $user->uid . ' : ' . check_plain($user->name);
+    $context['sandbox']['progress']++;
+    $context['sandbox']['current_node'] = $user->uid;
+    $context['message'] = $context['sandbox']['progress'] .' Done';
+  }
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+/**
+ * Batch operation finished callback redirect to form page
+ */
+function profile_entity_batch_finished($success, $results, $operations) {
+  if ($success) {
+    $message = format_plural(count($results), 'One user processed.', '@count users processed.');
+  }
+  else {
+    $message = t('Finished with an error.');
+  }
+  drupal_set_message($message);
+  foreach ($results as $result) {
+    $items[] = t('Loaded user %title.', array('%title' => $result));
+  }
+  $_SESSION['my_batch_results'] = $items;
+  drupal_goto('admin/config/people/profile-migration');
+}
