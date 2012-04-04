@@ -63,15 +63,18 @@ function profile_entity_quick_migrate(&$context) {
   if (empty($context['sandbox'])) {
     $context['sandbox']['progress'] = 0;
     $context['sandbox']['current_node'] = 0;
-    $context['sandbox']['max'] = db_query("SELECT COUNT(DISTINCT uid) FROM {users}")->fetchField();
+    $context['sandbox']['max'] = db_query("SELECT COUNT(DISTINCT u.uid) FROM {users} u inner join {profile_value} pv on pv.uid = u.uid")->fetchField();
   }
-  $limit = 5;
-  $result = db_select('users')
-    ->fields('users', array('uid'))
-    ->condition('uid', $context['sandbox']['current_node'], '>')
-    ->orderBy('uid')
-    ->range(0, $limit)
-    ->execute();
+
+  $limit = 50;
+  $query = db_select('users', 'u');
+  $query->join('profile_value', 'v', 'u.uid = v.uid');
+  $query->fields('u',array('uid'));
+  $query->condition('u.uid', $context['sandbox']['current_node'], '>');
+  $query->orderBy('uid');
+  $query->range(0, $limit);
+  $result = $query->execute();
+
   foreach ($result as $record) {
     $user = user_load($record->uid);
     $edit = array();
